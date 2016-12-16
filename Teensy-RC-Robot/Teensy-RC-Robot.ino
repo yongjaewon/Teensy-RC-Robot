@@ -3,6 +3,11 @@
 #include <RoboClaw.h>
 
 const int teensyLED = 13;
+
+const int redPin = 20;
+const int greenPin = 22;
+const int bluePin = 21;
+
 const int buzzer = 23;
 
 unsigned long previousMillis = 0;
@@ -21,16 +26,16 @@ FUTABA_SBUS sBus;
 RoboClaw roboclaw(&Serial2,10000);
 #define address 0x80
 
-Adafruit_NeoPixel pixels = Adafruit_NeoPixel(1, neoPixel, NEO_GRB + NEO_KHZ800);
-
 void setup(){
   pinMode(teensyLED, OUTPUT);
+  pinMode(redPin, OUTPUT);
+  pinMode(greenPin, OUTPUT);
+  pinMode(bluePin, OUTPUT);
   pinMode(buzzer, OUTPUT);
   
   sBus.begin();
   Serial.begin(115200);
   roboclaw.begin(38400);
-  pixels.begin();
 }
 
 void loop(){
@@ -56,30 +61,23 @@ void updateRGB() {
   if (!batteryStatus()) {
     noTone(buzzer);
     if (radioConnected && roboclawConnected) {
-      pixels.setPixelColor(0, pixels.Color(0, 100, 0));
-      //setRGB(0, 255, 0, 0);
+      setRGB(0, 255, 0, 0);
     } else if (radioConnected && !roboclawConnected) {
-      pixels.setPixelColor(0, pixels.Color(50, 50, 0));
-      //setRGB(255, 255, 0, 0); 
+      setRGB(255, 255, 0, 0); 
     } else if (!radioConnected && roboclawConnected) {
-      pixels.setPixelColor(0, pixels.Color(0, 100, 0));
-      //setRGB(0, 255, 0, 500);
+      setRGB(0, 255, 0, 500);
     } else {
-      pixels.setPixelColor(0, pixels.Color(50, 50, 0));
-      //setRGB(255, 255, 0, 500);
+      setRGB(255, 255, 0, 500);
     }
   }
   else {
     //tone(buzzer, 440);
     if (radioConnected) {
-      pixels.setPixelColor(0, pixels.Color(100, 0, 0));
-      //setRGB(255, 0, 0, 0);
+      setRGB(255, 0, 0, 0);
     } else {
-      pixels.setPixelColor(0, pixels.Color(100, 0, 0));
-      //setRGB(255, 0, 0, 500);
+      setRGB(255, 0, 0, 500);
     }
   }
-  pixels.show();
 }
 
 bool radioStatus() {
@@ -117,18 +115,23 @@ void setRGB(int red, int green, int blue, unsigned long blinkInterval)
   unsigned long currentMillis = millis();
   
   if (blinkInterval == 0) {
-    pixels.setPixelColor(0, pixels.Color(red, green, blue));
+    analogWrite(redPin, red);
+    analogWrite(greenPin, green);
+    analogWrite(bluePin, blue);
   } else if (currentMillis - previousMillis >= blinkInterval) {
     previousMillis = currentMillis;
     if (rgbOn == false) {
-      pixels.setPixelColor(0, pixels.Color(red, green, blue));
+      analogWrite(redPin, red);
+      analogWrite(greenPin, green);
+      analogWrite(bluePin, blue);
       rgbOn = true;
     } else {
-      pixels.setPixelColor(0, pixels.Color(0, 0, 0));
+      analogWrite(redPin, 0);
+      analogWrite(greenPin, 0);
+      analogWrite(bluePin, 0);
       rgbOn = false;
     }
   }
-  pixels.show();
 }
 
 void printAllsBusStatus() {
