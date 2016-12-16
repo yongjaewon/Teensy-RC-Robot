@@ -1,6 +1,10 @@
 #include <FUTABA_SBUS.h>
 #include <Streaming.h>
 #include <RoboClaw.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 const int teensyLED = 13;
 
@@ -23,6 +27,9 @@ const int numOfCells = 2;
 
 FUTABA_SBUS sBus;
 
+#define OLED_RESET 17
+Adafruit_SSD1306 display(OLED_RESET);
+
 RoboClaw roboclaw(&Serial2,10000);
 #define address 0x80
 
@@ -36,6 +43,8 @@ void setup(){
   sBus.begin();
   Serial.begin(115200);
   roboclaw.begin(38400);
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3D);
+  display.clearDisplay();
 }
 
 void loop(){
@@ -135,21 +144,28 @@ void setRGB(int red, int green, int blue, unsigned long blinkInterval)
 }
 
 void printAllsBusStatus() {
-  uint8_t i;
-    for (i=0; i<8; i++) {
-      Serial.printf("Ch %d : %d \n", i + 1, sBus.channels[i]);
-    }
-  Serial.print("RoboClaw Status: ");
-  if (roboclawConnected) {
-    Serial.println("Connected");
-    Serial.printf("Battery Voltage: %.1f V \n", batteryVoltage / 10.0);
-  } else {
-    Serial.println("Disconnected");
-    Serial.println("Battery Voltage: Not Available");
-  }
-  if (radioConnected) {
-    Serial.println("Radio Status: Connected \n\n");
-  } else {
-    Serial.println("Radio Status: Disconnected \n\n");
-  }
+//  uint8_t i;
+//    for (i=0; i<8; i++) {
+//      Serial.printf("Ch %d : %d \n", i + 1, sBus.channels[i]);
+//    }
+//  Serial.print("RoboClaw Status: ");
+//  if (roboclawConnected) {
+//    Serial.println("Connected");
+//    Serial.printf("Battery Voltage: %.1f V \n", batteryVoltage / 10.0);
+//  } else {
+//    Serial.println("Disconnected");
+//    Serial.println("Battery Voltage: Not Available");
+//  }
+//  if (radioConnected) {
+//    Serial.println("Radio Status: Connected \n\n");
+//  } else {
+//    Serial.println("Radio Status: Disconnected \n\n");
+//  }
+  display.clearDisplay();
+  display.setTextSize(5);
+  display.setTextColor(WHITE);
+  display.setCursor(6, 17);
+  display.print(batteryVoltage / 10.0, 1);
+  display.print("V");
+  display.display();
 }
