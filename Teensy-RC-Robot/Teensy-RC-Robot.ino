@@ -17,9 +17,13 @@ const int buzzer = 23;
 unsigned long previousMillis = 0;
 bool rgbOn = false;
 
+int refreshRate = 100;
+int loopCounter;
+
 bool radioInitialized = false;
 bool radioConnected = false;
 
+int displayedVoltage;
 int batteryVoltage;
 bool roboclawConnected = false;
 const int minCellVoltage = 33;
@@ -27,10 +31,21 @@ const int numOfCells = 2;
 
 FUTABA_SBUS sBus;
 
-#define OLED_RESET 17
-Adafruit_SSD1306 display(OLED_RESET);
+// If using software SPI (the default case):
+//#define OLED_MOSI   9
+//#define OLED_CLK   10
+//#define OLED_DC    11
+//#define OLED_CS    12
+//#define OLED_RESET 13
+//Adafruit_SSD1306 display(OLED_MOSI, OLED_CLK, OLED_DC, OLED_RESET, OLED_CS);
 
-RoboClaw roboclaw(&Serial2,10000);
+// Uncomment this block to use hardware SPI
+#define OLED_DC     9
+#define OLED_CS     10
+#define OLED_RESET  14
+Adafruit_SSD1306 display(OLED_DC, OLED_RESET, OLED_CS);
+
+RoboClaw roboclaw(&Serial3,10000);
 #define address 0x80
 
 void setup(){
@@ -39,12 +54,13 @@ void setup(){
   pinMode(greenPin, OUTPUT);
   pinMode(bluePin, OUTPUT);
   pinMode(buzzer, OUTPUT);
+
+  loopCounter = refreshRate;
   
   sBus.begin();
   Serial.begin(115200);
   roboclaw.begin(38400);
   display.begin(SSD1306_SWITCHCAPVCC, 0x3D);
-  display.clearDisplay();
 }
 
 void loop(){
@@ -56,9 +72,14 @@ void loop(){
     sBus.toChannels = 0;
     drive();
   }
-  
-  printAllsBusStatus();
-  updateRGB();
+
+  if (loopCounter == refreshRate) {
+    printAllsBusStatus();
+    loopCounter = 0;
+  } else {
+    loopCounter++;
+    updateRGB();
+  }
 }
 
 void failSafe() {
@@ -80,7 +101,7 @@ void updateRGB() {
     }
   }
   else {
-    //tone(buzzer, 440);
+    tone(buzzer, 440);
     if (radioConnected) {
       setRGB(255, 0, 0, 0);
     } else {
