@@ -40,6 +40,7 @@ FUTABA_SBUS sBus;
 //Adafruit_SSD1306 display(OLED_MOSI, OLED_CLK, OLED_DC, OLED_RESET, OLED_CS);
 
 // Uncomment this block to use hardware SPI
+// hardware SPI on Teensy 3.1: MOSI pin 11, SCK pin 13 plus the pins defined below
 #define OLED_DC     9
 #define OLED_CS     10
 #define OLED_RESET  14
