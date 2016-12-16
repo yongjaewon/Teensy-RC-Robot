@@ -58,7 +58,7 @@ void failSafe() {
 
 void updateRGB() {
   radioConnected = radioStatus();
-  if (!batteryStatus()) {
+  if (batteryStatus()) {
     noTone(buzzer);
     if (radioConnected && roboclawConnected) {
       setRGB(0, 255, 0, 0);
