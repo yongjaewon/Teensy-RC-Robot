@@ -14,16 +14,18 @@ const int bluePin = 21;
 
 const int buzzer = 23;
 
-unsigned long previousMillis = 0;
+unsigned long rgbPreviousMillis = 0;
+unsigned long displayChannelsPreviousMillis = 0;
+unsigned long displayVoltagePreviousMillis = 0;
 bool rgbOn = false;
 
-int refreshRate = 100;
-int loopCounter;
+unsigned long displayChannelsRefreshInterval = 50;
+unsigned long displayVoltageRefreshInterval = 1000;
 
 bool radioInitialized = false;
 bool radioConnected = false;
+unsigned long millisSinceLastPacket = 0;
 
-int displayedVoltage;
 int batteryVoltage;
 bool roboclawConnected = false;
 const int minCellVoltage = 33;
@@ -46,8 +48,9 @@ FUTABA_SBUS sBus;
 #define OLED_RESET  14
 Adafruit_SSD1306 display(OLED_DC, OLED_RESET, OLED_CS);
 
-RoboClaw roboclaw(&Serial3,10000);
-#define address 0x80
+RoboClaw roboclaw(&Serial3, 10000);
+#define roboclaw1 0x80
+#define roboclaw2 0x81
 
 void setup(){
   pinMode(teensyLED, OUTPUT);
@@ -55,12 +58,11 @@ void setup(){
   pinMode(greenPin, OUTPUT);
   pinMode(bluePin, OUTPUT);
   pinMode(buzzer, OUTPUT);
-
-  loopCounter = refreshRate;
   
   sBus.begin();
   Serial.begin(115200);
   roboclaw.begin(38400);
+  failSafe();
   display.begin(SSD1306_SWITCHCAPVCC, 0x3D);
 }
 
@@ -74,35 +76,73 @@ void loop(){
     drive();
   }
 
-  if (loopCounter == refreshRate) {
-    printAllsBusStatus();
-    loopCounter = 0;
+  unsigned long currentMillis = millis();
+  if (sBus.channels[5] == 144) { //display 1
+    if (currentMillis - displayChannelsPreviousMillis >= displayChannelsRefreshInterval) {
+      displayChannelsPreviousMillis = currentMillis;
+      displayChannels();
+    }
   } else {
-    loopCounter++;
-    updateRGB();
+    if (currentMillis - displayVoltagePreviousMillis >= displayVoltageRefreshInterval) {
+      displayVoltagePreviousMillis = currentMillis;
+      displayVoltage();
+    }
   }
+//  } else if (sBus.channels[5] == 1904) { //display 2
+//    if (currentMillis - displayVoltagePreviousMillis >= displayVoltageRefreshInterval) {
+//      displayVoltagePreviousMillis = currentMillis;
+//      displayVoltage();
+//    }
+//  } else {
+//    display.clearDisplay();
+//    display.display();
+//  }
+  
+//  if (sBus.channels[7] == 144) {
+//    tone(buzzer, sBus.channels[6]); //must comment out noTone in updateRGB() for it to work
+//  } else {
+//    noTone(buzzer);
+//  }
+  updateRGB();
+
 }
 
 void failSafe() {
-  roboclaw.ForwardM1(address, 0);
+  roboclaw.ForwardM1(roboclaw1, 0);
+  roboclaw.ForwardM2(roboclaw1, 0);
+  roboclaw.ForwardM1(roboclaw2, 0);
+  roboclaw.ForwardM2(roboclaw2, 0);
+}
+
+void buzz(bool condition) {
+  if (sBus.channels[7] == 144) {
+    tone(buzzer, sBus.channels[6]);
+  } else if (condition){
+    tone(buzzer, 440);
+  } else {
+    noTone(buzzer);
+  }
 }
 
 void updateRGB() {
   radioConnected = radioStatus();
   if (batteryStatus()) {
-    noTone(buzzer);
-    if (radioConnected && roboclawConnected) {
+    buzz(false);
+    if (radioConnected) {
       setRGB(0, 255, 0, 0);
-    } else if (radioConnected && !roboclawConnected) {
-      setRGB(255, 255, 0, 0); 
-    } else if (!radioConnected && roboclawConnected) {
-      setRGB(0, 255, 0, 500);
     } else {
-      setRGB(255, 255, 0, 500);
+      setRGB(0, 255, 0, 500);
+    }
+  } else if (!roboclawConnected) {
+    buzz(false);
+    if (radioConnected) {
+      setRGB(40, 255, 0, 0);
+    } else {
+      setRGB(40, 255, 0, 500);
     }
   }
   else {
-    tone(buzzer, 440);
+    buzz(true);
     if (radioConnected) {
       setRGB(255, 0, 0, 0);
     } else {
@@ -120,8 +160,8 @@ bool radioStatus() {
 }
 
 bool batteryStatus() {
-  batteryVoltage = roboclaw.ReadMainBatteryVoltage(address, &roboclawConnected);
-  if (!roboclawConnected || batteryVoltage > (minCellVoltage * numOfCells)) {
+  batteryVoltage = roboclaw.ReadMainBatteryVoltage(roboclaw1, &roboclawConnected);
+  if (batteryVoltage > (minCellVoltage * numOfCells)) {
     return true;
   } else {
     return false;
@@ -130,13 +170,13 @@ bool batteryStatus() {
 
 void drive() {
   if (!radioConnected) {
-    roboclaw.ForwardM1(address, 0);
+    failSafe();
   } else {
     int drive = (int)((sBus.channels[1] - 1023) / 5.17);
     if (drive >= 0) {
-      roboclaw.ForwardM1(address, drive);
+      roboclaw.ForwardM1(roboclaw2, drive);
     } else {
-      roboclaw.BackwardM1(address, -drive);
+      roboclaw.BackwardM1(roboclaw2, -drive);
     }
   }
 }
@@ -149,8 +189,8 @@ void setRGB(int red, int green, int blue, unsigned long blinkInterval)
     analogWrite(redPin, red);
     analogWrite(greenPin, green);
     analogWrite(bluePin, blue);
-  } else if (currentMillis - previousMillis >= blinkInterval) {
-    previousMillis = currentMillis;
+  } else if (currentMillis - rgbPreviousMillis >= blinkInterval) {
+    rgbPreviousMillis = currentMillis;
     if (rgbOn == false) {
       analogWrite(redPin, red);
       analogWrite(greenPin, green);
@@ -165,29 +205,40 @@ void setRGB(int red, int green, int blue, unsigned long blinkInterval)
   }
 }
 
-void printAllsBusStatus() {
-//  uint8_t i;
-//    for (i=0; i<8; i++) {
-//      Serial.printf("Ch %d : %d \n", i + 1, sBus.channels[i]);
-//    }
-//  Serial.print("RoboClaw Status: ");
-//  if (roboclawConnected) {
-//    Serial.println("Connected");
-//    Serial.printf("Battery Voltage: %.1f V \n", batteryVoltage / 10.0);
-//  } else {
-//    Serial.println("Disconnected");
-//    Serial.println("Battery Voltage: Not Available");
-//  }
-//  if (radioConnected) {
-//    Serial.println("Radio Status: Connected \n\n");
-//  } else {
-//    Serial.println("Radio Status: Disconnected \n\n");
-//  }
+void displayChannels() {
   display.clearDisplay();
-  display.setTextSize(5);
   display.setTextColor(WHITE);
-  display.setCursor(6, 17);
-  display.print(batteryVoltage / 10.0, 1);
-  display.print("V");
+  display.setCursor(0,0);
+  for (int i = 0; i < 8; i = i + 2) {
+    display.setCursor(0, 8 * i);
+    display.setTextSize(1);
+    display.print(i + 1);
+    display.print(":");
+    display.setTextSize(2);
+    display.print(sBus.channels[i]);
+    display.setCursor(67, 8 * i);
+    display.setTextSize(1);
+    display.print(i + 2);
+    display.print(":");
+    display.setTextSize(2);
+    display.print(sBus.channels[i + 1]);
+  }
   display.display();
 }
+
+void displayVoltage() {
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  display.setTextSize(1);
+  display.setCursor(20, 2);
+  display.print("Battery Voltage");
+  display.setTextSize(5);
+  if (batteryVoltage <= 100) {
+    display.setCursor(22, 23);
+  } else {
+    display.setCursor(7, 23);
+  }
+  display.print(batteryVoltage / 10.0, 1);
+  display.display();
+}
+
