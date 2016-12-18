@@ -82,32 +82,21 @@ void loop(){
       displayChannelsPreviousMillis = currentMillis;
       displayChannels();
     }
-  } else {
+  } else if (sBus.channels[5] == 1904) { //display 2
     if (currentMillis - displayVoltagePreviousMillis >= displayVoltageRefreshInterval) {
       displayVoltagePreviousMillis = currentMillis;
       displayVoltage();
     }
+  } else {
+    display.clearDisplay();
+    display.display();
   }
-//  } else if (sBus.channels[5] == 1904) { //display 2
-//    if (currentMillis - displayVoltagePreviousMillis >= displayVoltageRefreshInterval) {
-//      displayVoltagePreviousMillis = currentMillis;
-//      displayVoltage();
-//    }
-//  } else {
-//    display.clearDisplay();
-//    display.display();
-//  }
-  
-//  if (sBus.channels[7] == 144) {
-//    tone(buzzer, sBus.channels[6]); //must comment out noTone in updateRGB() for it to work
-//  } else {
-//    noTone(buzzer);
-//  }
   updateRGB();
 
 }
 
 void failSafe() {
+  sBus.channels[5] = 1904;
   roboclaw.ForwardM1(roboclaw1, 0);
   roboclaw.ForwardM2(roboclaw1, 0);
   roboclaw.ForwardM1(roboclaw2, 0);
