@@ -8,18 +8,19 @@
 
 const int teensyLED = 13;
 
-const int redPin = 20;
-const int greenPin = 22;
-const int bluePin = 21;
+const int redPin = 21;
+const int greenPin = 23;
+const int bluePin = 22;
 
-const int buzzer = 23;
+const int buzzer = 12;
 unsigned long buzzerPreviousMillis = 0;
 unsigned long buzzerInterval = 200;
 bool buzzerOn = false;
 
 unsigned long batteryAlarmPreviousMillis = 0;
-unsigned long batteryAlarmDelay = 3000;
-const int batteryAlarmVoltage = 76;
+unsigned long batteryResetPreviousMillis = 0;
+unsigned long batteryStatusDelay = 5000;
+const int batteryAlarmVoltage = 75;
 
 unsigned long rgbPreviousMillis = 0;
 unsigned long displayChannelsPreviousMillis = 0;
@@ -67,8 +68,9 @@ void setup(){
   sBus.begin();
   Serial.begin(115200);
   roboclaw.begin(38400);
-  failSafe();
   display.begin(SSD1306_SWITCHCAPVCC, 0x3D);
+  failSafe();
+  delay(500);
 }
 
 void loop(){
@@ -180,14 +182,19 @@ bool batteryStatus() {
   batteryVoltage = roboclaw.ReadMainBatteryVoltage(roboclaw1, &roboclawConnected);
   unsigned long currentMillis = millis();
   if (batteryVoltage <= batteryAlarmVoltage) {
-    if (currentMillis - batteryAlarmPreviousMillis >= batteryAlarmDelay) {
+    if (currentMillis - batteryAlarmPreviousMillis >= batteryStatusDelay) {
+      batteryResetPreviousMillis = currentMillis;
       return false;
     } else {
       return true;
     }
   } else {
-    batteryAlarmPreviousMillis = currentMillis;
-    return true;
+    if (currentMillis - batteryResetPreviousMillis >= batteryStatusDelay) {
+      batteryAlarmPreviousMillis = currentMillis;
+      return true;
+    } else {
+      return false;
+    }
   }
 }
 
