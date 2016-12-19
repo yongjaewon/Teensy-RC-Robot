@@ -13,6 +13,13 @@ const int greenPin = 22;
 const int bluePin = 21;
 
 const int buzzer = 23;
+unsigned long buzzerPreviousMillis = 0;
+unsigned long buzzerInterval = 200;
+bool buzzerOn = false;
+
+unsigned long batteryAlarmPreviousMillis = 0;
+unsigned long batteryAlarmDelay = 3000;
+const int batteryAlarmVoltage = 76;
 
 unsigned long rgbPreviousMillis = 0;
 unsigned long displayChannelsPreviousMillis = 0;
@@ -20,7 +27,7 @@ unsigned long displayVoltagePreviousMillis = 0;
 bool rgbOn = false;
 
 unsigned long displayChannelsRefreshInterval = 50;
-unsigned long displayVoltageRefreshInterval = 1000;
+unsigned long displayVoltageRefreshInterval = 100;
 
 bool radioInitialized = false;
 bool radioConnected = false;
@@ -28,8 +35,6 @@ unsigned long millisSinceLastPacket = 0;
 
 int batteryVoltage;
 bool roboclawConnected = false;
-const int minCellVoltage = 33;
-const int numOfCells = 2;
 
 FUTABA_SBUS sBus;
 
@@ -73,9 +78,14 @@ void loop(){
     sBus.UpdateServos();
     sBus.UpdateChannels();
     sBus.toChannels = 0;
-    drive();
   }
 
+  drive();
+  updateDisplay();
+  updateIndicators();
+}
+
+void updateDisplay() {
   unsigned long currentMillis = millis();
   if (sBus.channels[5] == 144) { //display 1
     if (currentMillis - displayChannelsPreviousMillis >= displayChannelsRefreshInterval) {
@@ -91,8 +101,6 @@ void loop(){
     display.clearDisplay();
     display.display();
   }
-  updateRGB();
-
 }
 
 void failSafe() {
@@ -104,17 +112,38 @@ void failSafe() {
 }
 
 void buzz(bool condition) {
-  if (sBus.channels[7] == 144) {
-    tone(buzzer, sBus.channels[6]);
-  } else if (condition){
-    tone(buzzer, 440);
+  if (condition) {
+    unsigned long currentMillis = millis();
+    if (currentMillis - buzzerPreviousMillis >= buzzerInterval) {
+      buzzerPreviousMillis = currentMillis;
+      if (buzzerOn) {
+        noTone(buzzer);
+        buzzerOn = false;
+      } else {
+        tone(buzzer, 660);
+        buzzerOn = true;
+      }
+    }
+  } else if (sBus.channels[7] == 144){
+    unsigned long currentMillis = millis();
+    if (currentMillis - buzzerPreviousMillis >= buzzerInterval) {
+      buzzerPreviousMillis = currentMillis;
+      if (buzzerOn) {
+        noTone(buzzer);
+        buzzerOn = false;
+      } else {
+        tone(buzzer, sBus.channels[6]);
+        buzzerOn = true;
+      }
+    }
   } else {
     noTone(buzzer);
   }
 }
 
-void updateRGB() {
+void updateIndicators() {
   radioConnected = radioStatus();
+  
   if (batteryStatus()) {
     buzz(false);
     if (radioConnected) {
@@ -129,8 +158,7 @@ void updateRGB() {
     } else {
       setRGB(40, 255, 0, 500);
     }
-  }
-  else {
+  } else {
     buzz(true);
     if (radioConnected) {
       setRGB(255, 0, 0, 0);
@@ -150,10 +178,16 @@ bool radioStatus() {
 
 bool batteryStatus() {
   batteryVoltage = roboclaw.ReadMainBatteryVoltage(roboclaw1, &roboclawConnected);
-  if (batteryVoltage > (minCellVoltage * numOfCells)) {
-    return true;
+  unsigned long currentMillis = millis();
+  if (batteryVoltage <= batteryAlarmVoltage) {
+    if (currentMillis - batteryAlarmPreviousMillis >= batteryAlarmDelay) {
+      return false;
+    } else {
+      return true;
+    }
   } else {
-    return false;
+    batteryAlarmPreviousMillis = currentMillis;
+    return true;
   }
 }
 
@@ -180,16 +214,16 @@ void setRGB(int red, int green, int blue, unsigned long blinkInterval)
     analogWrite(bluePin, blue);
   } else if (currentMillis - rgbPreviousMillis >= blinkInterval) {
     rgbPreviousMillis = currentMillis;
-    if (rgbOn == false) {
-      analogWrite(redPin, red);
-      analogWrite(greenPin, green);
-      analogWrite(bluePin, blue);
-      rgbOn = true;
-    } else {
+    if (rgbOn) {
       analogWrite(redPin, 0);
       analogWrite(greenPin, 0);
       analogWrite(bluePin, 0);
       rgbOn = false;
+    } else {
+      analogWrite(redPin, red);
+      analogWrite(greenPin, green);
+      analogWrite(bluePin, blue);
+      rgbOn = true;
     }
   }
 }
