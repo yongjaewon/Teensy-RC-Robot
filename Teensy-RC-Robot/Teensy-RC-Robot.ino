@@ -8,55 +8,48 @@
 
 const int teensyLED = 13;
 
-const int redPin = 21;
-const int greenPin = 23;
-const int bluePin = 22;
-
 const int buzzer = 12;
 unsigned long buzzerPreviousMillis = 0;
 unsigned long buzzerInterval = 200;
 bool buzzerOn = false;
 
+const int redPin = 21;
+const int greenPin = 23;
+const int bluePin = 22;
+unsigned long rgbPreviousMillis = 0;
+bool rgbOn = false;
+
 unsigned long batteryAlarmPreviousMillis = 0;
 unsigned long batteryResetPreviousMillis = 0;
 unsigned long batteryStatusDelay = 5000;
-const int batteryAlarmVoltage = 75;
+const int batteryAlarmVoltage = 66;
 
-unsigned long rgbPreviousMillis = 0;
 unsigned long displayChannelsPreviousMillis = 0;
 unsigned long displayVoltagePreviousMillis = 0;
-bool rgbOn = false;
+unsigned long displaySettingsPreviousMillis = 0;
 
 unsigned long displayChannelsRefreshInterval = 50;
-unsigned long displayVoltageRefreshInterval = 100;
+unsigned long displayVoltageRefreshInterval = 1000;
+unsigned long displaySettingsRefreshInterval = 50;
 
 bool radioInitialized = false;
-bool radioConnected = false;
-unsigned long millisSinceLastPacket = 0;
+bool roboclawConnected = false;
 
 int batteryVoltage;
-bool roboclawConnected = false;
+
+const int failsafeChannels[] = {1023, 1023, 1023, 1023, 1024, 1904, 1024, 1024};
 
 FUTABA_SBUS sBus;
 
-// If using software SPI (the default case):
-//#define OLED_MOSI   9
-//#define OLED_CLK   10
-//#define OLED_DC    11
-//#define OLED_CS    12
-//#define OLED_RESET 13
-//Adafruit_SSD1306 display(OLED_MOSI, OLED_CLK, OLED_DC, OLED_RESET, OLED_CS);
-
-// Uncomment this block to use hardware SPI
-// hardware SPI on Teensy 3.1: MOSI pin 11, SCK pin 13 plus the pins defined below
+// hardware SPI on Teensy 3.x: MOSI pin 11, SCK pin 13 plus the pins defined below
 #define OLED_DC     9
 #define OLED_CS     10
 #define OLED_RESET  14
 Adafruit_SSD1306 display(OLED_DC, OLED_RESET, OLED_CS);
 
 RoboClaw roboclaw(&Serial3, 10000);
-#define roboclaw1 0x80
-#define roboclaw2 0x81
+#define RC1 0x80
+#define RC2 0x81
 
 void setup(){
   pinMode(teensyLED, OUTPUT);
@@ -70,6 +63,7 @@ void setup(){
   roboclaw.begin(38400);
   display.begin(SSD1306_SWITCHCAPVCC, 0x3D);
   failSafe();
+  drive();
   delay(500);
 }
 
@@ -82,9 +76,13 @@ void loop(){
     sBus.toChannels = 0;
   }
 
+  if (!radioStatus()) {
+    failSafe();
+  }
+  
   drive();
-  updateDisplay();
   updateIndicators();
+  updateDisplay();
 }
 
 void updateDisplay() {
@@ -100,17 +98,17 @@ void updateDisplay() {
       displayVoltage();
     }
   } else {
-    display.clearDisplay();
-    display.display();
+    if (currentMillis - displaySettingsPreviousMillis >= displaySettingsRefreshInterval) {
+      displaySettingsPreviousMillis = currentMillis;
+      displaySettings();
+    }
   }
 }
 
 void failSafe() {
-  sBus.channels[5] = 1904;
-  roboclaw.ForwardM1(roboclaw1, 0);
-  roboclaw.ForwardM2(roboclaw1, 0);
-  roboclaw.ForwardM1(roboclaw2, 0);
-  roboclaw.ForwardM2(roboclaw2, 0);
+  for (int i = 0; i < 8; i++) {
+    sBus.channels[i] = failsafeChannels[i];
+  }
 }
 
 void buzz(bool condition) {
@@ -122,7 +120,7 @@ void buzz(bool condition) {
         noTone(buzzer);
         buzzerOn = false;
       } else {
-        tone(buzzer, 660);
+        tone(buzzer, 1260);
         buzzerOn = true;
       }
     }
@@ -144,25 +142,23 @@ void buzz(bool condition) {
 }
 
 void updateIndicators() {
-  radioConnected = radioStatus();
-  
   if (batteryStatus()) {
     buzz(false);
-    if (radioConnected) {
+    if (radioStatus()) {
       setRGB(0, 255, 0, 0);
     } else {
       setRGB(0, 255, 0, 500);
     }
   } else if (!roboclawConnected) {
     buzz(false);
-    if (radioConnected) {
+    if (radioStatus()) {
       setRGB(40, 255, 0, 0);
     } else {
       setRGB(40, 255, 0, 500);
     }
   } else {
     buzz(true);
-    if (radioConnected) {
+    if (radioStatus()) {
       setRGB(255, 0, 0, 0);
     } else {
       setRGB(255, 0, 0, 500);
@@ -179,9 +175,11 @@ bool radioStatus() {
 }
 
 bool batteryStatus() {
-  batteryVoltage = roboclaw.ReadMainBatteryVoltage(roboclaw1, &roboclawConnected);
+  batteryVoltage = roboclaw.ReadMainBatteryVoltage(RC1, &roboclawConnected);
   unsigned long currentMillis = millis();
-  if (batteryVoltage <= batteryAlarmVoltage) {
+  if (!roboclawConnected) {
+    return false;
+  } else if (batteryVoltage <= batteryAlarmVoltage) {
     if (currentMillis - batteryAlarmPreviousMillis >= batteryStatusDelay) {
       batteryResetPreviousMillis = currentMillis;
       return false;
@@ -189,7 +187,7 @@ bool batteryStatus() {
       return true;
     }
   } else {
-    if (currentMillis - batteryResetPreviousMillis >= batteryStatusDelay) {
+    if (currentMillis < batteryStatusDelay || currentMillis - batteryResetPreviousMillis >= batteryStatusDelay) {
       batteryAlarmPreviousMillis = currentMillis;
       return true;
     } else {
@@ -199,15 +197,11 @@ bool batteryStatus() {
 }
 
 void drive() {
-  if (!radioConnected) {
-    failSafe();
+  int drive = (int)((sBus.channels[1] - 1023) / 5.17);
+  if (drive >= 0) {
+    roboclaw.ForwardM1(RC2, drive);
   } else {
-    int drive = (int)((sBus.channels[1] - 1023) / 5.17);
-    if (drive >= 0) {
-      roboclaw.ForwardM1(roboclaw2, drive);
-    } else {
-      roboclaw.BackwardM1(roboclaw2, -drive);
-    }
+    roboclaw.BackwardM1(RC2, -drive);
   }
 }
 
@@ -272,3 +266,30 @@ void displayVoltage() {
   display.display();
 }
 
+void displaySettings() {
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("Battery Alarm: ");
+  display.print(batteryAlarmVoltage / 10.0, 1);
+  display.println("V");
+  display.print("Radio Initialized: ");
+  display.println(radioInitialized);
+  display.print("RoboClaw Connected: ");
+  display.println(roboclawConnected);
+  display.print("Failsafe Status: ");
+  display.println(sBus.failsafe_status);
+  for (int i = 0; i < 8; i = i + 2) {
+    display.setCursor(0, 33 + 4 * i);    display.print("Ch");
+    display.print(i + 1);
+    display.print(": ");
+    display.print(failsafeChannels[i]);
+    display.setCursor(64, 33 + 4 * i);
+    display.print("Ch");
+    display.print(i + 2);
+    display.print(": ");
+    display.print(failsafeChannels[i + 1]);
+  }
+  display.display();
+}
