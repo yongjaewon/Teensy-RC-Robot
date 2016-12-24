@@ -14,7 +14,7 @@ const int switchUp = 1904;
 const int switchMiddle = 1024;
 const int switchDown = 144;
 
-const int gimbalCenter = 1024;
+const int gimbalCenter = 1023;
 
 unsigned long batteryAlarmPreviousMillis = 0;
 unsigned long batteryResetPreviousMillis = 0;
@@ -29,14 +29,28 @@ unsigned long displayChannelsRefreshInterval = 50;
 unsigned long displayVoltageRefreshInterval = 1000;
 unsigned long displaySettingsRefreshInterval = 50;
 
+unsigned long readSBusPreviousMillis = 0;
+unsigned long readSBusRefreshInterval = 0;
+
 bool radioInitialized = false;
 bool roboclawConnected = false;
 
 int batteryVoltage;
 
-const int failsafeChannels[] = {1023, 1023, 1023, 1023, 1024, 1904, 1024, 1024};
-
 FUTABA_SBUS sBus;
+
+int normalizedChannels[8];
+
+#define ch1 normalizedChannels[0]
+#define ch2 normalizedChannels[1]
+#define ch3 normalizedChannels[2]
+#define ch4 normalizedChannels[3]
+#define ch5 normalizedChannels[4]
+#define ch6 normalizedChannels[5]
+#define ch7 normalizedChannels[6]
+#define ch8 normalizedChannels[7]
+
+int sBusPacketsCounter = 0;
 
 // hardware SPI on Teensy 3.x: MOSI pin 11, SCK pin 13 plus the pins defined below
 #define OLED_DC     9
@@ -48,18 +62,10 @@ RoboClaw roboclaw(&Serial3, 10000);
 #define RC1 0x80
 #define RC2 0x81
 
-int channels[8];
+unsigned long printChannelsPreviousMillis = 3000;
+unsigned long printChannelsInterval = 1000;
 
-#define ch1 channels[0]
-#define ch2 channels[1]
-#define ch3 channels[2]
-#define ch4 channels[3]
-#define ch5 channels[4]
-#define ch6 channels[5]
-#define ch7 channels[6]
-#define ch8 channels[7]
-
-int aCounter = 0;
+String concatChannelsString = "";
 
 void setup(){
   pinMode(buzzer, OUTPUT);
@@ -73,24 +79,84 @@ void setup(){
 }
 
 void loop(){
-  sBus.FeedLine();
-  if (sBus.toChannels == 1){
-    radioInitialized = true;
-    //sBus outputs some weird data at the beginning. this counter ignores the first 10 packets.
-    if (aCounter > 10) {
-      sBus.UpdateServos();
+    readSBus();
+    normalizeChannels();
+    if (sBusPacketsCounter > 100) {
+      drive();
+    } 
+    concatChannels();
+    printChannels();
+    updateBatteryVoltage();
+    updateIndicators();
+    updateDisplay();
+}
+
+void concatChannels() {
+  concatChannelsString = concatChannelsString + sBus.channels[1] + "(" + normalizedChannels[1] + ").";
+}
+
+void printChannels() {
+  unsigned long currentMillis = millis();
+  if (currentMillis - printChannelsPreviousMillis >= printChannelsInterval) {
+    printChannelsPreviousMillis = currentMillis;
+    Serial.println(concatChannelsString);
+    concatChannelsString = "";
+  }
+}
+
+void initiallizeChannels() {
+  sBus.channels[0] = gimbalCenter;
+  sBus.channels[1] = gimbalCenter;
+  sBus.channels[2] = gimbalCenter;
+  sBus.channels[3] = gimbalCenter;
+  sBus.channels[4] = switchMiddle;
+  sBus.channels[5] = switchUp;
+  sBus.channels[6] = switchMiddle;
+  sBus.channels[7] = switchMiddle;
+}
+
+void readSBus() {
+  unsigned long currentMillis = millis();
+  if (currentMillis - readSBusPreviousMillis >= readSBusRefreshInterval) {
+    readSBusPreviousMillis = currentMillis;
+    sBus.FeedLine();
+    if (sBus.toChannels == 1){
       sBus.UpdateChannels();
       sBus.toChannels = 0;
-      normalizeChannels();
-    } else {
-      aCounter++;
+      radioInitialized = true;
+      if (sBusPacketsCounter < 1000000) {
+        sBusPacketsCounter++;
+      }
     }
   }
+}
 
-  drive();
-  updateBatteryVoltage();
-  updateIndicators();
-  updateDisplay();
+void normalizeChannels() {
+  for (int i = 0; i < 8; i++) {
+    normalizedChannels[i] = sBus.channels[i];
+  }
+  
+  //reverse channels 2 and 3
+  ch2 = 2046 - ch2;
+  ch3 = 2046 - ch3;
+
+  //swap channel 3 with 4
+  int temp = ch3;
+  ch3 = ch4;
+  ch4 = temp;
+
+  //zero the center
+  ch1 = ch1 - gimbalCenter;
+  ch2 = ch2 - gimbalCenter;
+  ch3 = ch3 - gimbalCenter;
+  ch4 = ch4 - gimbalCenter;
+
+  //downrate to 8-bit
+  double downrateConstant = 5.173228;
+  ch1 = (int)(ch1 / downrateConstant);
+  ch2 = (int)(ch2 / downrateConstant);
+  ch3 = (int)(ch3 / downrateConstant);
+  ch4 = (int)(ch4 / downrateConstant);
 }
 
 void drive() {
@@ -107,46 +173,6 @@ void startupSound() {
   tone(buzzer, 932);
   delay(100);
   noTone(buzzer);
-}
-
-void initiallizeChannels() {
-  sBus.channels[0] = gimbalCenter;
-  sBus.channels[1] = gimbalCenter;
-  sBus.channels[2] = gimbalCenter;
-  sBus.channels[3] = gimbalCenter;
-  sBus.channels[4] = switchMiddle;
-  sBus.channels[5] = switchUp;
-  sBus.channels[6] = switchMiddle;
-  sBus.channels[7] = switchMiddle;
-}
-
-void normalizeChannels() {
-  for (int i = 0; i < 8; i++) {
-    channels[i] = sBus.channels[i];
-  }
-  
-  //reverse channels 1 and 4
-  ch1 = 2048 - ch1;
-  ch4 = 2048 - ch4;
-
-  //swap channels 3 and 4
-  int temp = ch3;
-  ch3 = ch4;
-  ch4 = temp;
-
-  //for channels 1 through 4 (gimbals)
-  for (int i = 0; i < 4; i++) {
-    //zero the center
-    channels[i] -= 1024;
-
-    //downrate to 8-bit
-    channels[i] = (int)(channels[i] / 5.165);
-
-    //apply deadband
-    if (channels[i] >= -2 && channels[i] <= 2) {
-      channels[i] = 0;
-    }
-  }
 }
 
 void setBuzzer(int buzzerFrequency, unsigned long buzzerInterval) {
@@ -243,7 +269,7 @@ void displayChannels() {
       display.print(i + j + 1);
       display.print(":");
       display.setTextSize(2);
-      display.print(channels[i + j]);
+      display.print(normalizedChannels[i + j]);
     }
   }
   display.display();
@@ -279,16 +305,5 @@ void displaySettings() {
   display.println(roboclawConnected);
   display.print("Failsafe Status: ");
   display.println(sBus.failsafe_status);
-  for (int i = 0; i < 8; i = i + 2) {
-    display.setCursor(0, 33 + 4 * i);    display.print("Ch");
-    display.print(i + 1);
-    display.print(": ");
-    display.print(failsafeChannels[i]);
-    display.setCursor(64, 33 + 4 * i);
-    display.print("Ch");
-    display.print(i + 2);
-    display.print(": ");
-    display.print(failsafeChannels[i + 1]);
-  }
   display.display();
 }
