@@ -31,6 +31,8 @@ unsigned long displayChannelsRefreshInterval = 50;
 unsigned long displayVoltageRefreshInterval = 1000;
 unsigned long displaySettingsRefreshInterval = 50;
 
+int displayState = 0;
+
 bool radioInitialized = false;
 bool roboclawConnected = false;
 
@@ -254,23 +256,26 @@ void updateDisplay() {
   unsigned long currentMillis = millis();
   if (ch6 == switchUp) {
     if (roboclawConnected) {
-      if (currentMillis - displayChannelsPreviousMillis >= displayChannelsRefreshInterval) {
+      if ((currentMillis - displayChannelsPreviousMillis >= displayChannelsRefreshInterval) || displayState != 1) {
         displayChannelsPreviousMillis = currentMillis;
         displayChannels();
       }
     } else {
       displayChannels();
     }
+    displayState = 1;
   } else if (ch6 == switchMiddle) {
-    if (currentMillis - displaySettingsPreviousMillis >= displaySettingsRefreshInterval) {
+    if ((currentMillis - displaySettingsPreviousMillis >= displaySettingsRefreshInterval) || displayState != 2) {
       displaySettingsPreviousMillis = currentMillis;
       displaySettings();
     }
+    displayState = 2;
   } else {
-    if (currentMillis - displayVoltagePreviousMillis >= displayVoltageRefreshInterval) {
+    if ((currentMillis - displayVoltagePreviousMillis >= displayVoltageRefreshInterval) || displayState != 3) {
       displayVoltagePreviousMillis = currentMillis;
       displayVoltage();
     }
+    displayState = 3;
   }
 }
 
