@@ -14,7 +14,9 @@ const int switchUp = 1904;
 const int switchMiddle = 1024;
 const int switchDown = 144;
 
+const int gimbalHigh = 1680;
 const int gimbalCenter = 1023;
+const int gimbalLow = 366;
 
 unsigned long batteryAlarmPreviousMillis = 0;
 unsigned long batteryResetPreviousMillis = 0;
@@ -29,11 +31,13 @@ unsigned long displayChannelsRefreshInterval = 50;
 unsigned long displayVoltageRefreshInterval = 1000;
 unsigned long displaySettingsRefreshInterval = 50;
 
-unsigned long readSBusPreviousMillis = 0;
-unsigned long readSBusRefreshInterval = 0;
-
 bool radioInitialized = false;
 bool roboclawConnected = false;
+
+bool channelsOutOfRange = false;
+
+unsigned long startupMillis;
+int startupSoundState = 0;
 
 int batteryVoltage;
 
@@ -62,11 +66,6 @@ RoboClaw roboclaw(&Serial3, 10000);
 #define RC1 0x80
 #define RC2 0x81
 
-unsigned long printChannelsPreviousMillis = 3000;
-unsigned long printChannelsInterval = 1000;
-
-String concatChannelsString = "";
-
 void setup(){
   pinMode(buzzer, OUTPUT);
   
@@ -75,33 +74,17 @@ void setup(){
   roboclaw.begin(38400);
   display.begin(SSD1306_SWITCHCAPVCC, 0x3D);
   initiallizeChannels();
-  startupSound();
+  startupMillis = millis();
 }
 
 void loop(){
+    startupSound();
     readSBus();
     normalizeChannels();
-    if (sBusPacketsCounter > 100) {
-      drive();
-    } 
-    concatChannels();
-    printChannels();
+    drive();
     updateBatteryVoltage();
     updateIndicators();
     updateDisplay();
-}
-
-void concatChannels() {
-  concatChannelsString = concatChannelsString + sBus.channels[1] + "(" + normalizedChannels[1] + ").";
-}
-
-void printChannels() {
-  unsigned long currentMillis = millis();
-  if (currentMillis - printChannelsPreviousMillis >= printChannelsInterval) {
-    printChannelsPreviousMillis = currentMillis;
-    Serial.println(concatChannelsString);
-    concatChannelsString = "";
-  }
 }
 
 void initiallizeChannels() {
@@ -116,24 +99,23 @@ void initiallizeChannels() {
 }
 
 void readSBus() {
-  unsigned long currentMillis = millis();
-  if (currentMillis - readSBusPreviousMillis >= readSBusRefreshInterval) {
-    readSBusPreviousMillis = currentMillis;
-    sBus.FeedLine();
-    if (sBus.toChannels == 1){
-      sBus.UpdateChannels();
-      sBus.toChannels = 0;
-      radioInitialized = true;
-      if (sBusPacketsCounter < 1000000) {
-        sBusPacketsCounter++;
-      }
-    }
+  sBus.FeedLine();
+  if (sBus.toChannels == 1){
+    sBus.UpdateChannels();
+    sBus.toChannels = 0;
+    radioInitialized = true;
   }
 }
 
 void normalizeChannels() {
   for (int i = 0; i < 8; i++) {
     normalizedChannels[i] = sBus.channels[i];
+  }
+
+  for (int i = 0; i < 4; i++) {
+    if (normalizedChannels[i] < gimbalLow || normalizedChannels[i] > gimbalHigh) {
+      channelsOutOfRange = true;
+    }
   }
   
   //reverse channels 2 and 3
@@ -157,22 +139,52 @@ void normalizeChannels() {
   ch2 = (int)(ch2 / downrateConstant);
   ch3 = (int)(ch3 / downrateConstant);
   ch4 = (int)(ch4 / downrateConstant);
+
+  applyDeadband();
 }
 
-void drive() {
-  if (ch2 >= 0) {
-    roboclaw.ForwardM1(RC2, ch2);
-  } else {
-    roboclaw.BackwardM1(RC2, -ch2);
+void applyDeadband() {
+  for (int i = 0; i < 4; i++) {
+    if (normalizedChannels[i] < 2 && normalizedChannels[i] > -2) {
+      normalizedChannels[i] = 0;
+    }
   }
 }
 
+void drive() {
+  if (!channelsOutOfRange) {
+    if (ch2 >= 0) {
+      roboclaw.ForwardM1(RC2, ch2);
+    } else {
+      roboclaw.BackwardM1(RC2, -ch2);
+    }
+  } else {
+    channelsOutOfRange = false;
+    stopAllMotors();
+  }
+}
+
+void stopAllMotors() {
+  roboclaw.ForwardM1(RC1, 0);
+  roboclaw.ForwardM2(RC1, 0);
+  roboclaw.ForwardM1(RC2, 0);
+  roboclaw.ForwardM2(RC2, 0);
+}
+
 void startupSound() {
-  tone(buzzer, 698);
-  delay(100);
-  tone(buzzer, 932);
-  delay(100);
-  noTone(buzzer);
+  if (startupSoundState != 3) {
+    unsigned long millisSinceStartup = millis() - startupMillis;
+    if (millisSinceStartup < 100 && startupSoundState != 1) {
+      tone(buzzer, 698);
+      startupSoundState = 1;
+    } else if (millisSinceStartup >= 100 && millisSinceStartup < 200 && startupSoundState != 2) {
+      tone(buzzer, 932);
+      startupSoundState = 2;
+    } else if (millisSinceStartup >= 200) {
+      noTone(buzzer);
+      startupSoundState = 3;
+    }
+  }
 }
 
 void setBuzzer(int buzzerFrequency, unsigned long buzzerInterval) {
@@ -192,7 +204,7 @@ void setBuzzer(int buzzerFrequency, unsigned long buzzerInterval) {
         }
       }
     }
-  } else {
+  } else if (startupSoundState == 3) {
     noTone(buzzer);
   }
 }
@@ -241,8 +253,12 @@ bool getBatteryStatus() {
 void updateDisplay() {
   unsigned long currentMillis = millis();
   if (ch6 == switchUp) {
-    if (currentMillis - displayChannelsPreviousMillis >= displayChannelsRefreshInterval) {
-      displayChannelsPreviousMillis = currentMillis;
+    if (roboclawConnected) {
+      if (currentMillis - displayChannelsPreviousMillis >= displayChannelsRefreshInterval) {
+        displayChannelsPreviousMillis = currentMillis;
+        displayChannels();
+      }
+    } else {
       displayChannels();
     }
   } else if (ch6 == switchMiddle) {
@@ -296,8 +312,11 @@ void displaySettings() {
   display.setTextColor(WHITE);
   display.setTextSize(1);
   display.setCursor(0, 0);
-  display.print("Battery Alarm: ");
+  display.print("Alarm Voltage: ");
   display.print(batteryAlarmVoltage / 10.0, 1);
+  display.println("V");
+  display.print("Current Voltage: ");
+  display.print(batteryVoltage / 10.0, 1);
   display.println("V");
   display.print("Radio Initialized: ");
   display.println(radioInitialized);
