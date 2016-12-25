@@ -23,25 +23,27 @@ unsigned long batteryResetPreviousMillis = 0;
 unsigned long batteryStatusDelay = 5000;
 const int batteryAlarmVoltage = 66;
 
+unsigned long updateBatteryVoltagePreviousMillis = 0;
+unsigned long updateBatteryVoltageInterval = 500;
+int batteryVoltage;
+
 unsigned long displayChannelsPreviousMillis = 0;
 unsigned long displayVoltagePreviousMillis = 0;
 unsigned long displaySettingsPreviousMillis = 0;
 
-unsigned long displayChannelsRefreshInterval = 50;
-unsigned long displayVoltageRefreshInterval = 1000;
-unsigned long displaySettingsRefreshInterval = 50;
+unsigned long displayChannelsInterval = 33;
+unsigned long displayVoltageInterval = 1000;
+unsigned long displaySettingsInterval = 33;
 
 int displayState = 0;
 
 bool radioInitialized = false;
 bool roboclawConnected = false;
 
-bool channelsOutOfRange = false;
+bool sBusOutOfRange = false;
 
 unsigned long startupMillis;
 int startupSoundState = 0;
-
-int batteryVoltage;
 
 FUTABA_SBUS sBus;
 
@@ -55,8 +57,6 @@ int normalizedChannels[8];
 #define ch6 normalizedChannels[5]
 #define ch7 normalizedChannels[6]
 #define ch8 normalizedChannels[7]
-
-int sBusPacketsCounter = 0;
 
 // hardware SPI on Teensy 3.x: MOSI pin 11, SCK pin 13 plus the pins defined below
 #define OLED_DC     9
@@ -75,6 +75,7 @@ void setup(){
   Serial.begin(115200);
   roboclaw.begin(38400);
   display.begin(SSD1306_SWITCHCAPVCC, 0x3D);
+  display.setRotation(2);
   initiallizeChannels();
   startupMillis = millis();
 }
@@ -116,7 +117,7 @@ void normalizeChannels() {
 
   for (int i = 0; i < 4; i++) {
     if (normalizedChannels[i] < gimbalLow || normalizedChannels[i] > gimbalHigh) {
-      channelsOutOfRange = true;
+      sBusOutOfRange = true;
     }
   }
   
@@ -154,14 +155,14 @@ void applyDeadband() {
 }
 
 void drive() {
-  if (!channelsOutOfRange) {
+  if (!sBusOutOfRange) {
     if (ch2 >= 0) {
       roboclaw.ForwardM1(RC2, ch2);
     } else {
       roboclaw.BackwardM1(RC2, -ch2);
     }
   } else {
-    channelsOutOfRange = false;
+    sBusOutOfRange = false;
     stopAllMotors();
   }
 }
@@ -220,7 +221,11 @@ void updateIndicators() {
 }
 
 void updateBatteryVoltage() {
-  batteryVoltage = roboclaw.ReadMainBatteryVoltage(RC1, &roboclawConnected);
+  unsigned long currentMillis = millis();
+  if (currentMillis - updateBatteryVoltagePreviousMillis >= updateBatteryVoltageInterval) {
+    updateBatteryVoltagePreviousMillis = currentMillis;
+    batteryVoltage = roboclaw.ReadMainBatteryVoltage(RC1, &roboclawConnected);
+  }
 }
 
 bool getRadioStatus() {
@@ -256,7 +261,7 @@ void updateDisplay() {
   unsigned long currentMillis = millis();
   if (ch6 == switchUp) {
     if (roboclawConnected) {
-      if ((currentMillis - displayChannelsPreviousMillis >= displayChannelsRefreshInterval) || displayState != 1) {
+      if ((currentMillis - displayChannelsPreviousMillis >= displayChannelsInterval) || displayState != 1) {
         displayChannelsPreviousMillis = currentMillis;
         displayChannels();
       }
@@ -265,13 +270,13 @@ void updateDisplay() {
     }
     displayState = 1;
   } else if (ch6 == switchMiddle) {
-    if ((currentMillis - displaySettingsPreviousMillis >= displaySettingsRefreshInterval) || displayState != 2) {
+    if ((currentMillis - displaySettingsPreviousMillis >= displaySettingsInterval) || displayState != 2) {
       displaySettingsPreviousMillis = currentMillis;
       displaySettings();
     }
     displayState = 2;
   } else {
-    if ((currentMillis - displayVoltagePreviousMillis >= displayVoltageRefreshInterval) || displayState != 3) {
+    if ((currentMillis - displayVoltagePreviousMillis >= displayVoltageInterval) || displayState != 3) {
       displayVoltagePreviousMillis = currentMillis;
       displayVoltage();
     }
@@ -323,11 +328,13 @@ void displaySettings() {
   display.print("Current Voltage: ");
   display.print(batteryVoltage / 10.0, 1);
   display.println("V");
-  display.print("Radio Initialized: ");
-  display.println(radioInitialized);
   display.print("RoboClaw Connected: ");
   display.println(roboclawConnected);
+  display.print("Radio Initialized: ");
+  display.println(radioInitialized);
   display.print("Failsafe Status: ");
   display.println(sBus.failsafe_status);
+  display.print("sBus Out of Range: ");
+  display.println(sBusOutOfRange);
   display.display();
 }
