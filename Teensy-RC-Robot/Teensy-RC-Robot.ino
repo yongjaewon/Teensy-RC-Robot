@@ -10,6 +10,8 @@ const int buzzer = 12;
 unsigned long buzzerPreviousMillis = 0;
 bool buzzerOn = false;
 
+const int buttonIn = 6;
+
 const int switchUp = 1904;
 const int switchMiddle = 1024;
 const int switchDown = 144;
@@ -34,6 +36,9 @@ unsigned long displaySettingsPreviousMillis = 0;
 unsigned long displayChannelsInterval = 33;
 unsigned long displayVoltageInterval = 1000;
 unsigned long displaySettingsInterval = 33;
+
+unsigned long cycleDisplayPreviousMillis = 0;
+unsigned long cycleDisplayInterval = 300;
 
 int displayState = 0;
 
@@ -68,8 +73,11 @@ RoboClaw roboclaw(&Serial3, 10000);
 #define RC1 0x80
 #define RC2 0x81
 
+int driveValue;
+
 void setup(){
   pinMode(buzzer, OUTPUT);
+  pinMode(buttonIn, INPUT_PULLUP);
   
   sBus.begin();
   Serial.begin(115200);
@@ -115,10 +123,19 @@ void normalizeChannels() {
     normalizedChannels[i] = sBus.channels[i];
   }
 
+  int numOfChannelsOOR = 0;
   for (int i = 0; i < 4; i++) {
-    if (normalizedChannels[i] < gimbalLow || normalizedChannels[i] > gimbalHigh) {
-      sBusOutOfRange = true;
+    //142 and 1904 are the extremes reachable by gimbals using trims.
+    //if in range 142-1904, data is erratic.
+    if (normalizedChannels[i] < 142 || normalizedChannels[i] > 1904) {
+      numOfChannelsOOR++;
     }
+  }
+
+  if (numOfChannelsOOR > 0) {
+    sBusOutOfRange = true;
+  } else {
+    sBusOutOfRange = false;
   }
   
   //reverse channels 2 and 3
@@ -126,24 +143,28 @@ void normalizeChannels() {
   ch3 = 2046 - ch3;
 
   //swap channel 3 with 4
-  int temp = ch3;
-  ch3 = ch4;
-  ch4 = temp;
+//  int temp = ch3;
+//  ch3 = ch4;
+//  ch4 = temp;
 
   //zero the center
   ch1 = ch1 - gimbalCenter;
   ch2 = ch2 - gimbalCenter;
-  ch3 = ch3 - gimbalCenter;
+//  ch3 = ch3 - gimbalCenter;
   ch4 = ch4 - gimbalCenter;
 
+  //zero the low position
+  ch3 -= gimbalLow;
+  
   //downrate to 8-bit
   double downrateConstant = 5.173228;
   ch1 = (int)(ch1 / downrateConstant);
   ch2 = (int)(ch2 / downrateConstant);
-  ch3 = (int)(ch3 / downrateConstant);
+  ch3 = (int)(ch3 / (2 * downrateConstant));
   ch4 = (int)(ch4 / downrateConstant);
 
   applyDeadband();
+  applyEndPoints();
 }
 
 void applyDeadband() {
@@ -154,15 +175,31 @@ void applyDeadband() {
   }
 }
 
+void applyEndPoints() {
+  for (int i = 0; i < 4; i++) {
+    if (i == 2) {
+      if (normalizedChannels[i] < 0) {
+        normalizedChannels[i] = 0;
+      } else if (normalizedChannels[i] > 127) {
+        normalizedChannels[i] = 127;
+      }
+    } else if (normalizedChannels[i] < -127) {
+      normalizedChannels[i] = -127;
+    } else if (normalizedChannels[i] > 127) {
+      normalizedChannels[i] = 127;
+    }
+  }
+}
+
 void drive() {
   if (!sBusOutOfRange) {
+    driveValue = (int)(ch2 * ch3 / 127);
     if (ch2 >= 0) {
-      roboclaw.ForwardM1(RC2, ch2);
+      roboclaw.ForwardM1(RC2, driveValue);
     } else {
-      roboclaw.BackwardM1(RC2, -ch2);
+      roboclaw.BackwardM1(RC2, -driveValue);
     }
   } else {
-    sBusOutOfRange = false;
     stopAllMotors();
   }
 }
@@ -213,7 +250,7 @@ void setBuzzer(int buzzerFrequency, unsigned long buzzerInterval) {
 }
 
 void updateIndicators() {
-  if (getBatteryStatus() || !roboclawConnected) {
+  if (batteryStatus() || !roboclawConnected) {
     setBuzzer(0, 0);
   } else {
     setBuzzer(1260, 200);
@@ -228,7 +265,7 @@ void updateBatteryVoltage() {
   }
 }
 
-bool getRadioStatus() {
+bool radioStatus() {
   if (radioInitialized && sBus.failsafe_status != 3) {
     return true;
   } else {
@@ -236,7 +273,7 @@ bool getRadioStatus() {
   }
 }
 
-bool getBatteryStatus() {
+bool batteryStatus() {
   unsigned long currentMillis = millis();
   if (!roboclawConnected) {
     return false;
@@ -258,33 +295,83 @@ bool getBatteryStatus() {
 }
 
 void updateDisplay() {
+  if (digitalRead(buttonIn) == LOW) {
+    cycleDisplay();
+  } else if (radioStatus()) {
+    radioControlDisplay();
+  } else {
+    refreshCurrentDisplay();
+  }
+}
+
+void refreshCurrentDisplay() {
+  if (displayState == 1) {
+    displayChannels();
+  } else if (displayState == 2) {
+    displaySettings();
+  } else if (displayState == 3) {
+    displayVoltage();
+  }
+}
+
+void cycleDisplay() {
   unsigned long currentMillis = millis();
-  if (ch6 == switchUp) {
-    if (roboclawConnected) {
-      if ((currentMillis - displayChannelsPreviousMillis >= displayChannelsInterval) || displayState != 1) {
-        displayChannelsPreviousMillis = currentMillis;
-        displayChannels();
-      }
+  if (currentMillis - cycleDisplayPreviousMillis >= cycleDisplayInterval) {
+    cycleDisplayPreviousMillis = currentMillis;
+    if (displayState == 1) {
+      displaySettings();
+    } else if (displayState == 2) {
+      displayVoltage();
     } else {
       displayChannels();
     }
-    displayState = 1;
-  } else if (ch6 == switchMiddle) {
-    if ((currentMillis - displaySettingsPreviousMillis >= displaySettingsInterval) || displayState != 2) {
-      displaySettingsPreviousMillis = currentMillis;
-      displaySettings();
-    }
-    displayState = 2;
   } else {
-    if ((currentMillis - displayVoltagePreviousMillis >= displayVoltageInterval) || displayState != 3) {
-      displayVoltagePreviousMillis = currentMillis;
-      displayVoltage();
-    }
-    displayState = 3;
+   refreshCurrentDisplay();
+  }
+}
+
+void radioControlDisplay() {
+  if (ch6 == switchUp) {
+    displayChannels();
+  } else if (ch6 == switchMiddle) {
+    displaySettings();
+  } else {
+    displayVoltage();
   }
 }
 
 void displayChannels() {
+  unsigned long currentMillis = millis();
+  if (roboclawConnected) {
+    if ((currentMillis - displayChannelsPreviousMillis >= displayChannelsInterval) || displayState != 1) {
+      displayChannelsPreviousMillis = currentMillis;
+      printChannels();
+    }
+  } else {
+    printChannels();
+  }
+  displayState = 1;
+}
+
+void displaySettings() {
+  unsigned long currentMillis = millis();
+  if ((currentMillis - displaySettingsPreviousMillis >= displaySettingsInterval) || displayState != 2) {
+    displaySettingsPreviousMillis = currentMillis;
+    printSettings();
+  }
+  displayState = 2;
+}
+
+void displayVoltage() {
+  unsigned long currentMillis = millis();
+  if ((currentMillis - displayVoltagePreviousMillis >= displayVoltageInterval) || displayState != 3) {
+    displayVoltagePreviousMillis = currentMillis;
+    printVoltage();
+  }
+  displayState = 3;
+}
+
+void printChannels() {
   display.clearDisplay();
   display.setTextColor(WHITE);
   display.setCursor(0,0);
@@ -301,40 +388,45 @@ void displayChannels() {
   display.display();
 }
 
-void displayVoltage() {
+void printVoltage() {
   display.clearDisplay();
   display.setTextColor(WHITE);
   display.setTextSize(1);
   display.setCursor(20, 2);
   display.print("Battery Voltage");
   display.setTextSize(5);
-  if (batteryVoltage <= 100) {
-    display.setCursor(22, 23);
+  if (roboclawConnected) {
+    if (batteryVoltage < 100) {
+      display.setCursor(22, 23);
+    } else {
+      display.setCursor(7, 23);
+    }
+    display.print(batteryVoltage / 10.0, 1);
   } else {
-    display.setCursor(7, 23);
+    display.setCursor(22, 23);
+    display.print("USB");
   }
-  display.print(batteryVoltage / 10.0, 1);
   display.display();
 }
 
-void displaySettings() {
+void printSettings() {
   display.clearDisplay();
   display.setTextColor(WHITE);
   display.setTextSize(1);
   display.setCursor(0, 0);
-  display.print("Alarm Voltage: ");
+  display.print("Alarm: ");
   display.print(batteryAlarmVoltage / 10.0, 1);
   display.println("V");
-  display.print("Current Voltage: ");
+  display.print("Battery: ");
   display.print(batteryVoltage / 10.0, 1);
   display.println("V");
-  display.print("RoboClaw Connected: ");
+  display.print("RoboClaw: ");
   display.println(roboclawConnected);
-  display.print("Radio Initialized: ");
+  display.print("Radio Init: ");
   display.println(radioInitialized);
-  display.print("Failsafe Status: ");
+  display.print("Failsafe: ");
   display.println(sBus.failsafe_status);
-  display.print("sBus Out of Range: ");
+  display.print("sBus OOR: ");
   display.println(sBusOutOfRange);
   display.display();
 }
