@@ -34,13 +34,13 @@ unsigned long displayVoltagePreviousMillis = 0;
 unsigned long displaySettingsPreviousMillis = 0;
 
 unsigned long displayChannelsInterval = 33;
-unsigned long displayVoltageInterval = 1000;
+unsigned long displayVoltageInterval = 500;
 unsigned long displaySettingsInterval = 33;
 
 unsigned long cycleDisplayPreviousMillis = 0;
-unsigned long cycleDisplayInterval = 300;
+unsigned long cycleDisplayInterval = 1000;
 
-int displayState = 0;
+int displayState = 1; //1: channels, 2: settings, 3: voltage, every other number: voltage
 
 bool radioInitialized = false;
 bool roboclawConnected = false;
@@ -98,17 +98,6 @@ void loop(){
     updateDisplay();
 }
 
-void initiallizeChannels() {
-  sBus.channels[0] = gimbalCenter;
-  sBus.channels[1] = gimbalCenter;
-  sBus.channels[2] = gimbalCenter;
-  sBus.channels[3] = gimbalCenter;
-  sBus.channels[4] = switchMiddle;
-  sBus.channels[5] = switchUp;
-  sBus.channels[6] = switchMiddle;
-  sBus.channels[7] = switchMiddle;
-}
-
 void readSBus() {
   sBus.FeedLine();
   if (sBus.toChannels == 1){
@@ -118,82 +107,9 @@ void readSBus() {
   }
 }
 
-void normalizeChannels() {
-  for (int i = 0; i < 8; i++) {
-    normalizedChannels[i] = sBus.channels[i];
-  }
-
-  int numOfChannelsOOR = 0;
-  for (int i = 0; i < 4; i++) {
-    //142 and 1904 are the extremes reachable by gimbals using trims.
-    //if in range 142-1904, data is erratic.
-    if (normalizedChannels[i] < 142 || normalizedChannels[i] > 1904) {
-      numOfChannelsOOR++;
-    }
-  }
-
-  if (numOfChannelsOOR > 0) {
-    sBusOutOfRange = true;
-  } else {
-    sBusOutOfRange = false;
-  }
-  
-  //reverse channels 2 and 3
-  ch2 = 2046 - ch2;
-  ch3 = 2046 - ch3;
-
-  //swap channel 3 with 4
-//  int temp = ch3;
-//  ch3 = ch4;
-//  ch4 = temp;
-
-  //zero the center
-  ch1 = ch1 - gimbalCenter;
-  ch2 = ch2 - gimbalCenter;
-//  ch3 = ch3 - gimbalCenter;
-  ch4 = ch4 - gimbalCenter;
-
-  //zero the low position
-  ch3 -= gimbalLow;
-  
-  //downrate to 8-bit
-  double downrateConstant = 5.173228;
-  ch1 = (int)(ch1 / downrateConstant);
-  ch2 = (int)(ch2 / downrateConstant);
-  ch3 = (int)(ch3 / (2 * downrateConstant));
-  ch4 = (int)(ch4 / downrateConstant);
-
-  applyDeadband();
-  applyEndPoints();
-}
-
-void applyDeadband() {
-  for (int i = 0; i < 4; i++) {
-    if (normalizedChannels[i] < 2 && normalizedChannels[i] > -2) {
-      normalizedChannels[i] = 0;
-    }
-  }
-}
-
-void applyEndPoints() {
-  for (int i = 0; i < 4; i++) {
-    if (i == 2) {
-      if (normalizedChannels[i] < 0) {
-        normalizedChannels[i] = 0;
-      } else if (normalizedChannels[i] > 127) {
-        normalizedChannels[i] = 127;
-      }
-    } else if (normalizedChannels[i] < -127) {
-      normalizedChannels[i] = -127;
-    } else if (normalizedChannels[i] > 127) {
-      normalizedChannels[i] = 127;
-    }
-  }
-}
-
 void drive() {
   if (!sBusOutOfRange) {
-    driveValue = (int)(ch2 * ch3 / 127);
+    driveValue = round(ch2 * ch3 / 255);
     if (ch2 >= 0) {
       roboclaw.ForwardM1(RC2, driveValue);
     } else {
@@ -292,141 +208,4 @@ bool batteryStatus() {
       return false;
     }
   }
-}
-
-void updateDisplay() {
-  if (digitalRead(buttonIn) == LOW) {
-    cycleDisplay();
-  } else if (radioStatus()) {
-    radioControlDisplay();
-  } else {
-    refreshCurrentDisplay();
-  }
-}
-
-void refreshCurrentDisplay() {
-  if (displayState == 1) {
-    displayChannels();
-  } else if (displayState == 2) {
-    displaySettings();
-  } else if (displayState == 3) {
-    displayVoltage();
-  }
-}
-
-void cycleDisplay() {
-  unsigned long currentMillis = millis();
-  if (currentMillis - cycleDisplayPreviousMillis >= cycleDisplayInterval) {
-    cycleDisplayPreviousMillis = currentMillis;
-    if (displayState == 1) {
-      displaySettings();
-    } else if (displayState == 2) {
-      displayVoltage();
-    } else {
-      displayChannels();
-    }
-  } else {
-   refreshCurrentDisplay();
-  }
-}
-
-void radioControlDisplay() {
-  if (ch6 == switchUp) {
-    displayChannels();
-  } else if (ch6 == switchMiddle) {
-    displaySettings();
-  } else {
-    displayVoltage();
-  }
-}
-
-void displayChannels() {
-  unsigned long currentMillis = millis();
-  if (roboclawConnected) {
-    if ((currentMillis - displayChannelsPreviousMillis >= displayChannelsInterval) || displayState != 1) {
-      displayChannelsPreviousMillis = currentMillis;
-      printChannels();
-    }
-  } else {
-    printChannels();
-  }
-  displayState = 1;
-}
-
-void displaySettings() {
-  unsigned long currentMillis = millis();
-  if ((currentMillis - displaySettingsPreviousMillis >= displaySettingsInterval) || displayState != 2) {
-    displaySettingsPreviousMillis = currentMillis;
-    printSettings();
-  }
-  displayState = 2;
-}
-
-void displayVoltage() {
-  unsigned long currentMillis = millis();
-  if ((currentMillis - displayVoltagePreviousMillis >= displayVoltageInterval) || displayState != 3) {
-    displayVoltagePreviousMillis = currentMillis;
-    printVoltage();
-  }
-  displayState = 3;
-}
-
-void printChannels() {
-  display.clearDisplay();
-  display.setTextColor(WHITE);
-  display.setCursor(0,0);
-  for (int i = 0; i < 8; i = i + 2) {
-    for (int j = 0; j < 2; j++) {
-      display.setCursor(67 * j, 8 * i);
-      display.setTextSize(1);
-      display.print(i + j + 1);
-      display.print(":");
-      display.setTextSize(2);
-      display.print(normalizedChannels[i + j]);
-    }
-  }
-  display.display();
-}
-
-void printVoltage() {
-  display.clearDisplay();
-  display.setTextColor(WHITE);
-  display.setTextSize(1);
-  display.setCursor(20, 2);
-  display.print("Battery Voltage");
-  display.setTextSize(5);
-  if (roboclawConnected) {
-    if (batteryVoltage < 100) {
-      display.setCursor(22, 23);
-    } else {
-      display.setCursor(7, 23);
-    }
-    display.print(batteryVoltage / 10.0, 1);
-  } else {
-    display.setCursor(22, 23);
-    display.print("USB");
-  }
-  display.display();
-}
-
-void printSettings() {
-  display.clearDisplay();
-  display.setTextColor(WHITE);
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.print("Alarm: ");
-  display.print(batteryAlarmVoltage / 10.0, 1);
-  display.println("V");
-  display.print("Battery: ");
-  display.print(batteryVoltage / 10.0, 1);
-  display.println("V");
-  display.print("RoboClaw: ");
-  display.println(roboclawConnected);
-  display.print("Radio Init: ");
-  display.println(radioInitialized);
-  display.print("Failsafe: ");
-  display.println(sBus.failsafe_status);
-  display.print("sBus OOR: ");
-  display.println(sBusOutOfRange);
-  display.display();
 }
