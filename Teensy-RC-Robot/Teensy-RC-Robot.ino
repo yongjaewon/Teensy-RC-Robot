@@ -89,13 +89,13 @@ void setup(){
 }
 
 void loop(){
-    startupSound();
-    readSBus();
-    normalizeChannels();
-    drive();
-    updateBatteryVoltage();
-    updateIndicators();
-    updateDisplay();
+  startupSound();
+  readSBus();
+  normalizeChannels();
+  drive();
+  updateBatteryVoltage();
+  updateIndicators();
+  updateDisplay();
 }
 
 void readSBus() {
@@ -109,7 +109,7 @@ void readSBus() {
 
 void drive() {
   if (!sBusOutOfRange) {
-    driveValue = round(ch2 * ch3 / 255);
+    driveValue = round(ch2 * ch3 / 127);
     if (ch2 >= 0) {
       roboclaw.ForwardM1(RC2, driveValue);
     } else {

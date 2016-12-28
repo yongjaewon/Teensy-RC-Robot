@@ -41,14 +41,14 @@ void normalizeChannels() {
   ch2 = round(ch2 / 5.156862745);
   ch4 = round(ch4 / 5.156862745);
 
-  //downrate to 8-bit (0 to 255)
-  ch3 = round(ch3 / 5.13671875);
+  //downrate to 7-bit (0 to 127)
+  ch3 = round(ch3 / 10.35433071);
 
-  applyDeadband();
+  applyDeadbands();
   applyEndPoints();
 }
 
-void applyDeadband() {
+void applyDeadbands() {
   int deadbandValue = 4;
   if (ch1 <= deadbandValue && ch1 >= -deadbandValue) {
     ch1 = 0;
@@ -58,7 +58,7 @@ void applyDeadband() {
     ch2 = 0;
   }
   
-  if (ch3 <= (2 * deadbandValue)) {
+  if (ch3 <= deadbandValue && ch3 >= -deadbandValue) {
     ch3 = 0;
   }
 
@@ -82,8 +82,8 @@ void applyEndPoints() {
 
   if (ch3 < 0) {
     ch3 = 0;
-  } else if (ch3 > 255) {
-    ch3 = 255;
+  } else if (ch3 > 127) {
+    ch3 = 127;
   }
 
   if (ch4 < -127) {
