@@ -10,7 +10,7 @@ const int buzzer = 12;
 unsigned long buzzerPreviousMillis = 0;
 bool buzzerOn = false;
 
-const int buttonIn = 6;
+const int buttonIn = 2;
 
 const int switchUp = 1904;
 const int switchMiddle = 1024;
@@ -38,7 +38,7 @@ unsigned long displayVoltageInterval = 500;
 unsigned long displaySettingsInterval = 33;
 
 unsigned long cycleDisplayPreviousMillis = 0;
-unsigned long cycleDisplayInterval = 1000;
+unsigned long cycleDisplayInterval = 300;
 
 int displayState = 1; //1: channels, 2: settings, 3: voltage, every other number: voltage
 

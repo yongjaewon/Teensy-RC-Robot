@@ -128,23 +128,23 @@ void printSettings() {
   display.print(batteryVoltage / 10.0, 1);
   display.print("V");
 
-  display.setCursor(0, 8);
+  display.setCursor(0, 9);
   display.print("RoboClw ");
   display.print(roboclawConnected);
 
-  display.setCursor(70, 8);
+  display.setCursor(70, 9);
   display.print("RdioIni ");
   display.print(radioInitialized);
 
-  display.setCursor(0, 16);
+  display.setCursor(0, 18);
   display.print("Failsaf ");
   display.print(sBus.failsafe_status);
 
-  display.setCursor(70, 16);
+  display.setCursor(70, 18);
   display.print("sBusOOR ");
   display.print(sBusOutOfRange);
 
-  display.setCursor(0, 24);
+  display.setCursor(0, 27);
   display.print(driveValue);
   
   display.display();
