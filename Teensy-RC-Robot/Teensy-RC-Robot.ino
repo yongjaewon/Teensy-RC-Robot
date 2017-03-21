@@ -7,6 +7,7 @@
 #include <Adafruit_SSD1306.h>
 
 const int buzzer = 12;
+const int auxBuzzer = 6;
 unsigned long buzzerPreviousMillis = 0;
 bool buzzerOn = false;
 
@@ -38,9 +39,9 @@ unsigned long displayVoltageInterval = 500;
 unsigned long displaySettingsInterval = 33;
 
 unsigned long cycleDisplayPreviousMillis = 0;
-unsigned long cycleDisplayInterval = 300;
+unsigned long cycleDisplayInterval = 200;
 
-int displayState = 1; //1: channels, 2: settings, 3: voltage, every other number: voltage
+int displayState = 3; //1: channels, 2: settings, 3: voltage, every other number: voltage
 
 bool radioInitialized = false;
 bool roboclawConnected = false;
@@ -78,6 +79,7 @@ int driveValue;
 void setup(){
   pinMode(buzzer, OUTPUT);
   pinMode(buttonIn, INPUT_PULLUP);
+  pinMode(auxBuzzer, OUTPUT);
   
   sBus.begin();
   Serial.begin(115200);
@@ -147,21 +149,25 @@ void setBuzzer(int buzzerFrequency, unsigned long buzzerInterval) {
   if (buzzerFrequency > 0) {
     if (buzzerInterval == 0) {
       tone(buzzer, buzzerFrequency);
+      digitalWrite(auxBuzzer, HIGH);
     } else {
       unsigned long currentMillis = millis();
       if (currentMillis - buzzerPreviousMillis >= buzzerInterval) {
         buzzerPreviousMillis = currentMillis;
         if (buzzerOn) {
           noTone(buzzer);
+          digitalWrite(auxBuzzer, LOW);
           buzzerOn = false;
         } else {
           tone(buzzer, buzzerFrequency);
+          digitalWrite(auxBuzzer, HIGH);
           buzzerOn = true;
         }
       }
     }
   } else if (startupSoundState == 3) {
     noTone(buzzer);
+    digitalWrite(auxBuzzer, LOW);
   }
 }
 

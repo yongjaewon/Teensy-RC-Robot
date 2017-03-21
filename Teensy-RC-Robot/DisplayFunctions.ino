@@ -119,34 +119,37 @@ void printSettings() {
   display.setTextSize(1);
   
   display.setCursor(0, 0);
-  display.print("Alrm ");
+  display.print("VAlrm ");
+  if (batteryAlarmVoltage < 100) {
+    display.print(" ");
+  }
   display.print(batteryAlarmVoltage / 10.0, 1);
-  display.print("V");
   
-  display.setCursor(70, 0);
-  display.print("Batt ");
+  display.setCursor(67, 0);
+  display.print("VBatt ");
+  if (batteryVoltage < 100) {
+    display.print(" ");
+  }
   display.print(batteryVoltage / 10.0, 1);
-  display.print("V");
 
   display.setCursor(0, 9);
-  display.print("RoboClw ");
+  display.print("RoboClaw ");
   display.print(roboclawConnected);
 
-  display.setCursor(70, 9);
-  display.print("RdioIni ");
-  display.print(radioInitialized);
+  display.setCursor(67, 9);
+  display.print("sBusOOR  ");
+  display.print(sBusOutOfRange);
 
   display.setCursor(0, 18);
-  display.print("Failsaf ");
-  display.print(sBus.failsafe_status);
+  display.print("RdioInit ");
+  display.print(radioInitialized);
 
-  display.setCursor(70, 18);
-  display.print("sBusOOR ");
-  display.print(sBusOutOfRange);
+  display.setCursor(67, 18);
+  display.print("Failsafe ");
+  display.print(sBus.failsafe_status);
 
   display.setCursor(0, 27);
   display.print(driveValue);
   
   display.display();
 }
-
